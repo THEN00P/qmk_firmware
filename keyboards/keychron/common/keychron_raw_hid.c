@@ -108,6 +108,10 @@ void get_firmware_version(uint8_t *data) {
     itoa((DEVICE_VER >> 4) & 0xF, (char *)&data[i++], 16);
     data[i++] = '.';
     itoa(DEVICE_VER & 0xF, (char *)&data[i++], 16);
+    data[i++] = '+';
+    data[i++] = 'f';
+    data[i++] = 'a';
+    data[i++] = 'r';
     data[i++] = ' ';
     memcpy(&data[i], QMK_BUILDDATE, sizeof(QMK_BUILDDATE));
     i += sizeof(QMK_BUILDDATE);
