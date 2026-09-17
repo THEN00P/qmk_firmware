@@ -75,8 +75,10 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           while read -r kb; do
-            echo "::group::$kb"
-            qmk compile -kb "$kb" -km keychron -e ALLOW_WARNINGS=yes -j "$(nproc)"
+            # Vendor keymap: keychron/... -> keychron, lemokey/... -> lemokey.
+            km="${kb%%/*}"
+            echo "::group::$kb ($km)"
+            qmk compile -kb "$kb" -km "$km" -e ALLOW_WARNINGS=yes -j "$(nproc)"
             echo "::endgroup::"
           done < targets.txt
           mv ./*.bin artifacts/
@@ -111,7 +113,7 @@ jobs:
             Built commit: `${{ steps.port.outputs.build_sha }}` (tagged, so the source for
             these GPL-2.0 binaries stays available).
 
-            ${{ steps.targets.outputs.count }} binaries, `keychron` keymap (VIA enabled).
+            ${{ steps.targets.outputs.count }} binaries, vendor keymap (`keychron`/`lemokey`, VIA enabled).
             Version strings read `vX.Y.Z+far <build date>`.
 
             Not tested on hardware. Flash the file matching your exact board and layout.
