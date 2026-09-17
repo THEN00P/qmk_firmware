@@ -101,6 +101,18 @@ jobs:
           mv ./*.bin artifacts/
           ls -la artifacts
 
+      - name: Write release notes
+        if: steps.port.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          python3 .github/release_notes.py \
+            --targets targets.txt \
+            --artifacts artifacts \
+            --upstream-sha "${{ steps.port.outputs.upstream_sha }}" \
+            --build-sha "${{ steps.port.outputs.build_sha }}" \
+            > notes.md
+          cat notes.md
+
       - name: Push the built commit
         if: steps.port.outputs.skip == 'false'
         run: |
@@ -115,16 +127,6 @@ jobs:
         if: steps.port.outputs.skip == 'false'
         with:
           tag_name: ${{ steps.port.outputs.tag }}
-          name: "Full analog report on Keychron ${{ env.UPSTREAM_BRANCH }} (${{ steps.port.outputs.upstream_sha }})"
-          body: |
-            Automated build of the AnalogSense full analog report, cherry-picked onto
-            Keychron `${{ env.UPSTREAM_BRANCH }}` @ `${{ steps.port.outputs.upstream_sha }}`.
-
-            Built commit: `${{ steps.port.outputs.build_sha }}` (tagged, so the source for
-            these GPL-2.0 binaries stays available).
-
-            ${{ steps.targets.outputs.count }} binaries, vendor keymap (`keychron`/`lemokey`, VIA enabled).
-            Version strings read `vX.Y.Z+far <build date>`.
-
-            Not tested on hardware. Flash the file matching your exact board and layout.
+          name: "Keychron ${{ env.UPSTREAM_BRANCH }} @ ${{ steps.port.outputs.upstream_sha }} +far"
+          body_path: notes.md
           files: artifacts/*.bin
