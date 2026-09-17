@@ -1,0 +1,118 @@
+name: build-far
+
+# Rebuilds the AnalogSense full analog report on top of Keychron's latest
+# 2025q3 tip and publishes the binaries as a release.
+#
+# This branch (far-ci) holds only this workflow. The actual port lives as a
+# single commit on keychron-far-2025q3, which is kept clean so it stays
+# PR-able against AnalogSense. Each run cherry-picks that commit onto the
+# current upstream tip, so there is no base ref to keep pinned.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PORT_BRANCH: keychron-far-2025q3
+  UPSTREAM_REPO: https://github.com/Keychron/qmk_firmware
+  UPSTREAM_BRANCH: 2025q3
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: qmkfm/qmk_cli
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cherry-pick the port onto the upstream tip
+        id: port
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add keychron "$UPSTREAM_REPO"
+          git fetch --no-tags keychron "$UPSTREAM_BRANCH"
+          git fetch --no-tags origin "$PORT_BRANCH"
+
+          PORT_COMMIT=$(git rev-parse "origin/$PORT_BRANCH")
+          git checkout -B build "keychron/$UPSTREAM_BRANCH"
+
+          # Fails loudly if upstream refactors the code the port touches;
+          # that needs a human to redo the port on keychron-far-2025q3.
+          git cherry-pick "$PORT_COMMIT"
+
+          {
+            echo "upstream_sha=$(git rev-parse --short keychron/$UPSTREAM_BRANCH)"
+            echo "build_sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: make git-submodule
+
+      - name: Collect analog-switch targets
+        id: targets
+        run: |
+          set -euo pipefail
+          # Discovered per run, so HE boards Keychron adds later are picked up.
+          for kb in $(grep -rl analog_matrix.mk keyboards --include=rules.mk | xargs -n1 dirname); do
+            find "$kb" -name keyboard.json -printf '%h\n'
+          done | sed 's|^keyboards/||' | sort -u > targets.txt
+
+          echo "Found $(wc -l < targets.txt) targets:"
+          cat targets.txt
+          echo "count=$(wc -l < targets.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          while read -r kb; do
+            echo "::group::$kb"
+            qmk compile -kb "$kb" -km keychron -e ALLOW_WARNINGS=yes -j "$(nproc)"
+            echo "::endgroup::"
+          done < targets.txt
+          mv ./*.bin artifacts/
+          ls -la artifacts
+
+      - name: Push the built commit
+        id: tag
+        run: |
+          set -euo pipefail
+          # QMK is GPL-2.0, so the exact source for these binaries has to stay
+          # available. Tagging the commit that was built is what provides it.
+          TAG="far-$(date -u +%Y%m%d)-${{ steps.port.outputs.upstream_sha }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, upstream has not moved; nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag -a "$TAG" -m "Built against Keychron $UPSTREAM_BRANCH @ ${{ steps.port.outputs.upstream_sha }}"
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        if: steps.tag.outputs.skip == 'false'
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Full analog report on Keychron ${{ env.UPSTREAM_BRANCH }} (${{ steps.port.outputs.upstream_sha }})"
+          body: |
+            Automated build of the AnalogSense full analog report, cherry-picked onto
+            Keychron `${{ env.UPSTREAM_BRANCH }}` @ `${{ steps.port.outputs.upstream_sha }}`.
+
+            Built commit: `${{ steps.port.outputs.build_sha }}` (tagged, so the source for
+            these GPL-2.0 binaries stays available).
+
+            ${{ steps.targets.outputs.count }} binaries, `keychron` keymap (VIA enabled).
+            Version strings read `vX.Y.Z+far <build date>`.
+
+            Not tested on hardware. Flash the file matching your exact board and layout.
+          files: artifacts/*.bin
