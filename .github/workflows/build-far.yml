@@ -12,6 +12,11 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      limit:
+        description: "Only build the first N targets (0 = all). Use a small N to test workflow changes without a full build."
+        required: false
+        default: "0"
 
 permissions:
   contents: write
@@ -86,6 +91,12 @@ jobs:
             find "$kb" -name keyboard.json -printf '%h\n'
           done | sed 's|^keyboards/||' | sort -u > targets.txt
 
+          LIMIT="${{ github.event.inputs.limit || '0' }}"
+          if [ "$LIMIT" != "0" ]; then
+            head -n "$LIMIT" targets.txt > targets.trimmed && mv targets.trimmed targets.txt
+            echo "Test run: limited to $LIMIT target(s)."
+          fi
+
           echo "Found $(wc -l < targets.txt) targets:"
           cat targets.txt
           echo "count=$(wc -l < targets.txt)" >> "$GITHUB_OUTPUT"
@@ -118,7 +129,7 @@ jobs:
           cat notes.md
 
       - name: Push the built commit
-        if: steps.port.outputs.skip == 'false'
+        if: steps.port.outputs.skip == 'false' && (github.event.inputs.limit || '0') == '0'
         run: |
           set -euo pipefail
           # QMK is GPL-2.0, so the exact source for these binaries has to stay
@@ -128,7 +139,7 @@ jobs:
           git push origin "${{ steps.port.outputs.tag }}"
 
       - uses: softprops/action-gh-release@v2
-        if: steps.port.outputs.skip == 'false'
+        if: steps.port.outputs.skip == 'false' && (github.event.inputs.limit || '0') == '0'
         with:
           tag_name: ${{ steps.port.outputs.tag }}
           name: "Keychron ${{ env.UPSTREAM_BRANCH }} @ ${{ steps.port.outputs.upstream_sha }} +far"
