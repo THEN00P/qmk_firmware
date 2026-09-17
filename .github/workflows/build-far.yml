@@ -39,6 +39,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # The build tree below is upstream's, which does not contain this
+          # branch's files, so keep what later steps need outside the worktree.
+          cp .github/release_notes.py /tmp/release_notes.py
+
           git remote add keychron "$UPSTREAM_REPO"
           git fetch --no-tags keychron "$UPSTREAM_BRANCH"
           git fetch --no-tags origin "$PORT_BRANCH"
@@ -105,7 +109,7 @@ jobs:
         if: steps.port.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          python3 .github/release_notes.py \
+          python3 /tmp/release_notes.py \
             --targets targets.txt \
             --artifacts artifacts \
             --upstream-sha "${{ steps.port.outputs.upstream_sha }}" \
